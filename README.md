@@ -1,10 +1,21 @@
 # RAG FAQ Chatbot
 
 A minimal Retrieval-Augmented Generation (RAG) chatbot that answers questions
-from a folder of markdown FAQ docs. Fully open-source and fully local: pgvector
+from a folder of markdown docs. Fully open-source and fully local: pgvector
 for retrieval, Llama 3.2 via Ollama for generation, React for the UI — no API
 keys, no cloud. Built as a learning project for AI system design; every step
 of the pipeline is visible and commented.
+
+The knowledge base includes the core of the **HL7 FHIR R4 specification**
+(Patient, Observation, Encounter, Condition, MedicationRequest, the REST API,
+search, bundles, security, operations — ~900KB across 12 pages), so you can
+ask real healthcare-interoperability questions like:
+
+- *"How do I search for all observations for a specific patient?"*
+- *"Is FHIR itself a security protocol? How should authentication be handled?"*
+- *"What's the difference between a batch and a transaction bundle?"*
+
+Plus three small sample FAQ files (billing, account, product) for quick tests.
 
 ## How it works
 
@@ -49,8 +60,26 @@ docker compose run --rm app python rag_chat.py
 - `rag_chat.py` — the whole RAG pipeline (chunk, embed, ingest, retrieve, generate) + CLI chat loop
 - `api.py` — FastAPI wrapper exposing `POST /api/chat` and serving the UI
 - `static/index.html` — React chat UI (no build step — React via CDN)
-- `docs/` — the knowledge base (three sample FAQ files; add your own)
+- `docs/` — the knowledge base: 3 sample FAQ files + `docs/fhir/` (FHIR R4 spec pages)
 - `docker-compose.yml` — three services: `db` (pgvector), `ollama`, `app`
+
+## How the FHIR docs were ingested
+
+The FHIR pages were downloaded from [hl7.org/fhir/R4](https://hl7.org/fhir/R4/),
+converted from HTML to markdown with pandoc, and stripped of navigation cruft:
+
+```bash
+curl -s https://hl7.org/fhir/R4/security.html -o page.html
+pandoc page.html -f html -t gfm-raw_html --wrap=none -o docs/fhir/security.md
+# then a small cleanup script removes nav menus and embedded images
+```
+
+This also forced a real-world chunking fix: spec sections are far longer than
+FAQ entries, and the embedding model only "reads" the first ~256 tokens of a
+chunk. Long sections are now split into ~1500-character pieces on paragraph
+boundaries, with the section header repeated on every piece so each chunk
+keeps its topic (see `split_long()` in `rag_chat.py`). Result: 386 chunks
+in pgvector.
 
 ## Example
 

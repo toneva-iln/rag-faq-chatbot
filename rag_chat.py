@@ -46,17 +46,41 @@ EMBED_DIM = 384  # output size of all-MiniLM-L6-v2
 
 # ---------------------------------------------------------------------------
 # Step 1: Chunking — split each doc into sections small enough to retrieve.
-# We split on "## " headers so each chunk is one FAQ topic. In a real system
-# you'd also cap chunk size (e.g. ~500 tokens) and maybe overlap chunks.
+# We split on "## " headers so each chunk is one topic, then further split
+# anything longer than MAX_CHUNK_CHARS on paragraph boundaries. The embedding
+# model only "reads" the first ~256 tokens of a chunk, so oversized chunks
+# (like the FHIR spec's giant sections) would be invisible to search past
+# their opening lines.
 # ---------------------------------------------------------------------------
+MAX_CHUNK_CHARS = 1500
+MIN_CHUNK_CHARS = 80  # skip crumbs like lone headers
+
+
+def split_long(section: str) -> list[str]:
+    if len(section) <= MAX_CHUNK_CHARS:
+        return [section]
+    # Keep the section's first line (its header) on every piece so each
+    # chunk still carries its topic after splitting.
+    header, _, body = section.partition("\n")
+    pieces, current = [], ""
+    for para in body.split("\n\n"):
+        if current and len(current) + len(para) > MAX_CHUNK_CHARS:
+            pieces.append(f"{header}\n{current.strip()}")
+            current = ""
+        current += para + "\n\n"
+    if current.strip():
+        pieces.append(f"{header}\n{current.strip()}")
+    return pieces
+
+
 def load_chunks() -> list[dict]:
     chunks = []
-    for doc in sorted(DOCS_DIR.glob("*.md")):
-        text = doc.read_text()
-        for section in text.split("\n## "):
-            section = section.strip()
-            if section:
-                chunks.append({"source": doc.name, "text": section})
+    for doc in sorted(DOCS_DIR.rglob("*.md")):
+        source = str(doc.relative_to(DOCS_DIR))
+        for section in doc.read_text().split("\n## "):
+            for piece in split_long(section.strip()):
+                if len(piece) >= MIN_CHUNK_CHARS:
+                    chunks.append({"source": source, "text": piece})
     return chunks
 
 
