@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG FAQ Chatbot</title>
+  <!-- React via CDN + Babel so there's no node/webpack build step.
+       Fine for a demo; a real app would use Vite. -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f3f4f6;
+      display: flex;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    #root { width: 100%; max-width: 760px; padding: 24px 16px; }
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 48px);
+    }
+    .header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #e5e7eb;
+      font-weight: 600;
+      font-size: 17px;
+    }
+    .header small { color: #6b7280; font-weight: 400; display: block; margin-top: 2px; }
+    .messages { flex: 1; overflow-y: auto; padding: 20px; }
+    .msg { margin-bottom: 14px; display: flex; }
+    .msg.user { justify-content: flex-end; }
+    .bubble {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .user .bubble { background: #2563eb; color: white; border-bottom-right-radius: 4px; }
+    .bot .bubble { background: #f1f5f9; color: #111827; border-bottom-left-radius: 4px; }
+    .chunks { margin-top: 6px; font-size: 12px; color: #6b7280; }
+    .chunk { padding: 2px 0; }
+    .chunk .score { font-family: monospace; color: #059669; }
+    .inputRow { display: flex; gap: 8px; padding: 14px 16px; border-top: 1px solid #e5e7eb; }
+    input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      font-size: 15px;
+      outline: none;
+    }
+    input:focus { border-color: #2563eb; }
+    button {
+      padding: 10px 18px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    button:disabled { background: #93c5fd; cursor: default; }
+    .thinking { color: #6b7280; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useEffect } = React;
+
+    function App() {
+      const [messages, setMessages] = useState([]);
+      const [input, setInput] = useState("");
+      const [loading, setLoading] = useState(false);
+      const bottomRef = useRef(null);
+
+      useEffect(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, [messages, loading]);
+
+      async function send() {
+        const question = input.trim();
+        if (!question || loading) return;
+        setInput("");
+        setMessages((m) => [...m, { role: "user", content: question }]);
+        setLoading(true);
+        try {
+          // Send prior turns as history so the bot has conversation memory.
+          const history = messages.map(({ role, content }) => ({ role, content }));
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question, history }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          setMessages((m) => [
+            ...m,
+            { role: "assistant", content: data.answer, chunks: data.chunks },
+          ]);
+        } catch (err) {
+          setMessages((m) => [
+            ...m,
+            { role: "assistant", content: `Something went wrong: ${err.message}` },
+          ]);
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      return (
+        <div className="card">
+          <div className="header">
+            RAG FAQ Chatbot
+            <small>Llama 3.2 + pgvector — ask about billing, accounts, or the product</small>
+          </div>
+          <div className="messages">
+            {messages.length === 0 && (
+              <div className="thinking">Try: "I want my money back" or "how do I enable 2FA?"</div>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={`msg ${m.role === "user" ? "user" : "bot"}`}>
+                <div className="bubble">
+                  {m.content}
+                  {m.chunks && (
+                    <div className="chunks">
+                      {m.chunks.map((c, j) => (
+                        <div key={j} className="chunk">
+                          <span className="score">{c.score}</span> {c.source}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {loading && <div className="thinking">thinking…</div>}
+            <div ref={bottomRef} />
+          </div>
+          <div className="inputRow">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+              placeholder="Ask a question…"
+              autoFocus
+            />
+            <button onClick={send} disabled={loading || !input.trim()}>
+              Send
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
