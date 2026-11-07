@@ -68,6 +68,31 @@ bot> To request a refund, email billing@example.com with your account
 Note: the question says "money back" and the doc says "refunds" — no shared
 keywords. That's semantic (embedding-based) retrieval doing its job.
 
+## Reading the retrieved chunks
+
+Under each answer, the UI shows the top-3 chunks that were retrieved and fed
+to the LLM, e.g.:
+
+```
+0.56  account.md
+0.26  account.md
+0.22  account.md
+```
+
+- The number is the **similarity score** (cosine similarity between the
+  question's embedding and the chunk's embedding): 1.0 = identical meaning,
+  0 = unrelated
+- The filename is the **source doc** in `docs/` the chunk came from
+
+This is the most useful debugging view in any RAG system:
+
+- **Bad answer?** Check the chunks first. If the right chunk isn't in the
+  list, it's a retrieval problem — no prompt tweaking will fix it.
+- **Score gaps tell a story.** One chunk at 0.56 and the rest at ~0.25 means
+  a clear hit plus filler (top-3 are always returned). All three at ~0.3
+  means the docs probably don't cover the question — a production system
+  would use a score threshold to say "I don't know" instead of answering.
+
 ## What to try
 
 - Ask a question the docs don't answer — the bot should say it doesn't know
